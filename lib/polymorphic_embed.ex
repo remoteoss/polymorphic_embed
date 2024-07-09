@@ -490,37 +490,88 @@ defmodule PolymorphicEmbed do
   end
 
   defp merge_polymorphic_keys(map, changes, types, msg_func) do
-    Enum.reduce(types, map, fn
-      {field, {:parameterized, PolymorphicEmbed, _opts}}, acc ->
-        if changeset = Map.get(changes, field) do
-          case traverse_errors(changeset, msg_func) do
-            errors when errors == %{} -> acc
-            errors -> Map.put(acc, field, errors)
-          end
-        else
-          acc
-        end
-
-      {field, {:array, {:parameterized, PolymorphicEmbed, _opts}}}, acc ->
-        if changesets = Map.get(changes, field) do
-          {errors, all_empty?} =
-            Enum.map_reduce(changesets, true, fn changeset, all_empty? ->
-              errors = traverse_errors(changeset, msg_func)
-              {errors, all_empty? and errors == %{}}
-            end)
-
-          case all_empty? do
-            true -> acc
-            false -> Map.put(acc, field, errors)
-          end
-        else
-          acc
-        end
-
-      {_, _}, acc ->
-        acc
-    end)
+    Enum.reduce(types, map, &polymorphic_key_reducer(&1, &2, changes, msg_func))
   end
+
+  defp polymorphic_key_reducer(
+         {field, {rel, %{cardinality: :one}}},
+         acc,
+         changes,
+         msg_func
+       )
+       when rel in [:assoc, :embed] do
+    if changeset = Map.get(changes, field) do
+      case traverse_errors(changeset, msg_func) do
+        errors when errors == %{} -> acc
+        errors -> Map.put(acc, field, errors)
+      end
+    else
+      acc
+    end
+  end
+
+  defp polymorphic_key_reducer(
+         {field, {:parameterized, PolymorphicEmbed, _opts}},
+         acc,
+         changes,
+         msg_func
+       ) do
+    if changeset = Map.get(changes, field) do
+      case traverse_errors(changeset, msg_func) do
+        errors when errors == %{} -> acc
+        errors -> Map.put(acc, field, errors)
+      end
+    else
+      acc
+    end
+  end
+
+  defp polymorphic_key_reducer(
+         {field, {rel, %{cardinality: :many}}},
+         acc,
+         changes,
+         msg_func
+       )
+       when rel in [:assoc, :embed] do
+    if changesets = Map.get(changes, field) do
+      {errors, all_empty?} =
+        Enum.map_reduce(changesets, true, fn changeset, all_empty? ->
+          errors = traverse_errors(changeset, msg_func)
+          {errors, all_empty? and errors == %{}}
+        end)
+
+      case all_empty? do
+        true -> acc
+        false -> Map.put(acc, field, errors)
+      end
+    else
+      acc
+    end
+  end
+
+  defp polymorphic_key_reducer(
+         {field, {:array, {:parameterized, PolymorphicEmbed, _opts}}},
+         acc,
+         changes,
+         msg_func
+       ) do
+    if changesets = Map.get(changes, field) do
+      {errors, all_empty?} =
+        Enum.map_reduce(changesets, true, fn changeset, all_empty? ->
+          errors = traverse_errors(changeset, msg_func)
+          {errors, all_empty? and errors == %{}}
+        end)
+
+      case all_empty? do
+        true -> acc
+        false -> Map.put(acc, field, errors)
+      end
+    else
+      acc
+    end
+  end
+
+  defp polymorphic_key_reducer({_, _}, acc, _, _), do: acc
 
   defp autogenerate_id([], _action), do: []
 
